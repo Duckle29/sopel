@@ -1,102 +1,145 @@
 # coding=utf-8
 # Copyright 2013 Elsie Powell, embolalia.com
+# Copyright 2019 Mikkel Jeppesen
 # Licensed under the Eiffel Forum License 2
 from __future__ import unicode_literals, absolute_import, print_function, division
-
+from sopel.module import commands, example, NOLIMIT  # , rule  # Uncomment this to use regex triggering
+from sopel.tools import stderr
+import time
 import re
+import requests
 
-from requests import get
-from sopel.module import commands, example, NOLIMIT
+rates_fiat_json = {}
+rates_btc_json = {}
 
-# The Canadian central bank has better exchange rate data than the Fed, the
-# Bank of England, or the European Central Bank. Who knew?
-base_url = 'https://www.bankofcanada.ca/valet/observations/FX{}CAD/json'
+
+fiat_url = 'https://api.exchangeratesapi.io/latest?base=EUR'
+crypto_url = 'https://apiv2.bitcoinaverage.com/indices/global/ticker/short?crypto=BTC'
 regex = re.compile(r'''
-    (\d+(?:\.\d+)?)        # Decimal number
-    \s*([a-zA-Z]{3})       # 3-letter currency code
-    \s+(?:in|as|of|to)\s+  # preposition
-    ([a-zA-Z]{3})          # 3-letter currency code
-    ''', re.VERBOSE)
+    ^(\d+(?:\.\d+)?)						# Decimal number
+    \s*([a-zA-Z]{3})						# 3-letter currency code
+    \s+(?:in|as|of|to)\s+					# preposition
+    (([a-zA-Z]{3})|([a-zA-Z]{3})\s)+$	# one or more 3-letter currency code
+''', re.VERBOSE)
 
 
-def get_rate(code):
-    code = code.upper()
-    if code == 'CAD':
-        return 1, 'Canadian Dollar'
-    elif code == 'BTC':
-        btc_rate = get('https://apiv2.bitcoinaverage.com/indices/global/ticker/BTCCAD')
-        rates = btc_rate.json()
-        return 1 / rates['averages']['day'], 'Bitcoin—24hr average'
+def btc_rate(code, reverse=False):
+    global rates_btc_json
 
-    data = get(base_url.format(code))
-    name = data.json()['seriesDetail']['FX{}CAD'.format(code)]['description']
-    name = name.split(" to Canadian")[0]
-    json = data.json()['observations']
-    for element in reversed(json):
-        if 'v' in element['FX{}CAD'.format(code)]:
-            return 1 / float(element['FX{}CAD'.format(code)]['v']), name
+    search = 'BTC{}'.format(code)
+
+    if search in rates_btc_json:
+        rate = rates_btc_json[search]['averages']['day']
+    else:
+        return "Sorry {} isn't currently supported".format(code)
+
+    if reverse:
+        return 1 / rate
+    else:
+        return rate
 
 
-@commands('cur', 'currency', 'exchange')
-@example('.cur 20 EUR in USD')
+def update_rates():
+    global rates_fiat_json
+    global rates_btc_json
+
+    # If we have data that are less than 24h old, return
+    if 'date' in rates_fiat_json:
+        if time.time() - rates_fiat_json['date'] < 24 * 60 * 60:
+            return
+
+    # Update crypto rates
+    request = requests.get(crypto_url)
+    request.raise_for_status()
+    rates_btc_json = request.json()
+
+    # Update fiat rates
+    request = requests.get(fiat_url)
+    request.raise_for_status()
+    rates_fiat_json = request.json()
+    rates_fiat_json['date'] = time.time()
+    rates_fiat_json['rates']['EUR'] = 1.0  # Put this here to make logic easier
+
+
+def get_rate(of, to):
+    global rates_fiat_json
+    of = of.upper()
+    to = to.upper()
+
+    if of == 'BTC' or to == 'BTC':
+        if of == 'BTC':
+            code = to
+            reverse = False
+        else:
+            code = of
+            reverse = True
+
+        return btc_rate(code, reverse)
+
+    if of not in rates_fiat_json['rates']:
+        return "Sorry {} isn't currently supported".format(of)
+
+    if to not in rates_fiat_json['rates']:
+        return "Sorry {} isn't currently supported".format(to)
+
+    return (1 / rates_fiat_json['rates'][of]) * rates_fiat_json['rates'][to]
+
+
+# To have the plugin act directly on regex matches, comment out the lines marked with # this
+# and uncomment the lines marked with # that
+# @rule(regex)  # that
+@commands('cur', 'currency', 'exchange')  # this
+@example('.cur 100 usd in btc cad eur')
 def exchange(bot, trigger):
     """Show the exchange rate between two currencies"""
-    if not trigger.group(2):
-        return bot.reply("No search term. An example: .cur 20 EUR in USD")
-    match = regex.match(trigger.group(2))
+    if not trigger.group(2):                                                            # this
+        return bot.reply("No search term. An example: .cur 100 usd in btc cad eur")     # this
+    match = regex.match(trigger.group(2))                                               # this
+    # match = regex.match(trigger)                                                      # that
     if not match:
-        # It's apologetic, because it's using Canadian data.
         bot.reply("Sorry, I didn't understand the input.")
         return NOLIMIT
 
-    amount, of, to = match.groups()
+    update_rates()  # Try and update rates. Rate-limiting is done in update_rates()
+
+    query = match.string
+
+    others = query.split()
+    amount = others.pop(0)
+    of = others.pop(0)
+    others.pop(0)
+
+#    amount, of, _, *others = query.split() # I'd much rather use this, but it's not python 2.7 compatible
+
     try:
         amount = float(amount)
     except ValueError:
         bot.reply("Sorry, I didn't understand the input.")
     except OverflowError:
         bot.reply("Sorry, input amount was out of range.")
-    display(bot, amount, of, to)
+
+    out_string = '{} {} is'.format(amount, of.upper())
+    for to in others:
+        try:
+            out_string = build_reply(bot, amount, of.upper(), to.upper(), out_string)
+        except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError) as e:
+            bot.reply("Something went wrong while I was getting the exchange rate.")
+            stderr("Error in GET request: {}".format(e))
+            return NOLIMIT
+        except ValueError:
+            bot.reply(out_string)
+            return NOLIMIT
+
+    bot.reply(out_string[0:-1])
 
 
-def display(bot, amount, of, to):
+def build_reply(bot, amount, of, to, out_string):
     if not amount:
         bot.reply("Zero is zero, no matter what country you're in.")
-    try:
-        of_rate, of_name = get_rate(of)
-        if not of_name:
-            bot.reply("Unknown currency: %s" % of)
-            return
-        to_rate, to_name = get_rate(to)
-        if not to_name:
-            bot.reply("Unknown currency: %s" % to)
-            return
-    except Exception:  # TODO: Be specific
-        bot.reply("Something went wrong while I was getting the exchange rate.")
-        return NOLIMIT
 
-    result = amount / of_rate * to_rate
-    bot.say("{:.2f} {} ({}) = {:.2f} {} ({})".format(amount, of.upper(), of_name,
-                                             result, to.upper(), to_name))
+    result = float(get_rate(of, to) * amount)
 
+    if to == 'BTC':
+        return out_string + ' {:.5f} {},'.format(result, to)
 
-@commands('btc', 'bitcoin')
-@example('.btc 20 EUR')
-def bitcoin(bot, trigger):
-    # if 2 args, 1st is number and 2nd is currency. If 1 arg, it's either the number or the currency.
-    to = trigger.group(4)
-    amount = trigger.group(3)
-    if not to:
-        to = trigger.group(3) or 'USD'
-        amount = 1
-
-    try:
-        amount = float(amount)
-    except ValueError:
-        bot.reply("Sorry, I didn't understand the input.")
-        return NOLIMIT
-    except OverflowError:
-        bot.reply("Sorry, input amount was out of range.")
-        return NOLIMIT
-
-    display(bot, amount, 'BTC', to)
+    return out_string + ' {:.2f} {},'.format(result, to)
