@@ -3,23 +3,27 @@
 # Copyright 2019 Mikkel Jeppesen
 # Licensed under the Eiffel Forum License 2
 from __future__ import unicode_literals, absolute_import, print_function, division
-from sopel.module import commands, example, NOLIMIT  # , rule  # Uncomment this to use regex triggering
-from sopel.tools import stderr
+
 import time
 import re
 import requests
+
+from sopel.module import commands, example, NOLIMIT, rule
+from sopel.tools import stderr
+from sopel.config.types import StaticSection, ValidatedAttribute
 
 rates_fiat_json = {}
 rates_btc_json = {}
 
 
 fiat_url = 'https://api.exchangeratesapi.io/latest?base=EUR'
+fixer_url = 'http://data.fixer.io/api/latest?base=EUR&access_key={}'
 crypto_url = 'https://apiv2.bitcoinaverage.com/indices/global/ticker/short?crypto=BTC'
 regex = re.compile(r'''
-    ^(\d+(?:\.\d+)?)						# Decimal number
-    \s*([a-zA-Z]{3})						# 3-letter currency code
-    \s+(?:in|as|of|to)\s+					# preposition
-    (([a-zA-Z]{3})|([a-zA-Z]{3})\s)+$	# one or more 3-letter currency code
+    ^(\d+(?:\.\d+)?)                                            # Decimal number
+    \s*([a-zA-Z]{3})                                            # 3-letter currency code
+    \s+(?:in|as|of|to)\s+                                       # preposition
+    (([a-zA-Z]{3})|([a-zA-Z]{3})\s)+$   # one or more 3-letter currency code
 ''', re.VERBOSE)
 
 
@@ -39,7 +43,7 @@ def btc_rate(code, reverse=False):
         return rate
 
 
-def update_rates():
+def update_rates(bot):
     global rates_fiat_json
     global rates_btc_json
 
@@ -54,7 +58,14 @@ def update_rates():
     rates_btc_json = request.json()
 
     # Update fiat rates
-    request = requests.get(fiat_url)
+    if bot.config.currency.fixer_io_key is not None:
+        request = requests.get(fixer_url.format(bot.config.currency.fixer_io_key))
+        if not request.json()['success']:
+            stderr(str(request.json()['error']))
+            return bot.reply('Sorry, something went wrong')
+    else:
+        request = requests.get(fiat_url)
+
     request.raise_for_status()
     rates_fiat_json = request.json()
     rates_fiat_json['date'] = time.time()
@@ -85,22 +96,15 @@ def get_rate(of, to):
     return (1 / rates_fiat_json['rates'][of]) * rates_fiat_json['rates'][to]
 
 
-# To have the plugin act directly on regex matches, comment out the lines marked with # this
-# and uncomment the lines marked with # that
-# @rule(regex)  # that
-@commands('cur', 'currency', 'exchange')  # this
-@example('.cur 100 usd in btc cad eur')
-def exchange(bot, trigger):
+def exchange(bot, match):
     """Show the exchange rate between two currencies"""
-    if not trigger.group(2):                                                            # this
-        return bot.reply("No search term. An example: .cur 100 usd in btc cad eur")     # this
-    match = regex.match(trigger.group(2))                                               # this
+
     # match = regex.match(trigger)                                                      # that
     if not match:
         bot.reply("Sorry, I didn't understand the input.")
         return NOLIMIT
 
-    update_rates()  # Try and update rates. Rate-limiting is done in update_rates()
+    update_rates(bot)  # Try and update rates. Rate-limiting is done in update_rates()
 
     query = match.string
 
@@ -127,19 +131,59 @@ def exchange(bot, trigger):
             stderr("Error in GET request: {}".format(e))
             return NOLIMIT
         except ValueError:
-            bot.reply(out_string)
             return NOLIMIT
 
     bot.reply(out_string[0:-1])
+
+
+@commands('cur', 'currency', 'exchange')  # this
+@example('.cur 100 usd in btc cad eur')
+def exchange_cmd(bot, trigger):
+    if not trigger.group(2):
+        return bot.reply("No search term. An example: .cur 100 usd in btc cad eur")
+
+    match = regex.match(trigger.group(2))
+    exchange(bot, match)
+
+
+@rule(regex)
+@example('100 usd in btc cad eur')
+def exchange_re(bot, trigger):
+    if bot.config.currency.enable_regex:
+        match = regex.match(trigger)
+        exchange(bot, match)
 
 
 def build_reply(bot, amount, of, to, out_string):
     if not amount:
         bot.reply("Zero is zero, no matter what country you're in.")
 
-    result = float(get_rate(of, to) * amount)
+    rate_raw = ''
+    try:
+        rate_raw = get_rate(of, to)
+        rate = float(rate_raw)
+    except ValueError:
+        bot.reply(rate_raw)
+        raise
+
+    result = float(rate * amount)
 
     if to == 'BTC':
         return out_string + ' {:.5f} {},'.format(result, to)
 
     return out_string + ' {:.2f} {},'.format(result, to)
+
+
+class CurrencySection(StaticSection):
+    fixer_io_key = ValidatedAttribute('fixer_io_key', default=None)
+    enable_regex = ValidatedAttribute('enable_regex', parse=bool, default=False)
+
+
+def configure(config):
+    config.define_section('currency', CurrencySection, validate=False)
+    config.currency.configure_setting('fixer_io_key', 'API key for fixer IO. Leave blank to use exchangeratesapi.io:')
+    config.currency.configure_setting('enable_regex', 'automatically respond to regex matches:')
+
+
+def setup(bot):
+    bot.config.define_section('currency', CurrencySection)
