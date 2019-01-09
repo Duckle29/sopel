@@ -23,7 +23,7 @@ regex = re.compile(r'''
     ^(\d+(?:\.\d+)?)                                            # Decimal number
     \s*([a-zA-Z]{3})                                            # 3-letter currency code
     \s+(?:in|as|of|to)\s+                                       # preposition
-    (([a-zA-Z]{3})|([a-zA-Z]{3})\s)+$   # one or more 3-letter currency code
+    (([a-zA-Z]{3}$)|([a-zA-Z]{3})\s)+$                          # one or more 3-letter currency code
 ''', re.VERBOSE)
 
 
