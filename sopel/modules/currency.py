@@ -8,9 +8,9 @@ import re
 import requests
 import time
 
-from sopel.module import commands, example, NOLIMIT, rule
 from sopel.config.types import StaticSection, ValidatedAttribute
 from sopel.logger import get_logger
+from sopel.module import commands, example, NOLIMIT, rule
 
 FIAT_URL = 'https://api.exchangeratesapi.io/latest?base=EUR'
 FIXER_URL = 'http://data.fixer.io/api/latest?base=EUR&access_key={}'
