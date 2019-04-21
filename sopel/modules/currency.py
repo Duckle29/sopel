@@ -29,13 +29,13 @@ rates_btc_json = {}
 # Config
 class CurrencySection(StaticSection):
     fixer_io_key = ValidatedAttribute('fixer_io_key', default=None)
-    enable_regex = ValidatedAttribute('enable_regex', parse=bool, default=False)
+    auto_convert = ValidatedAttribute('auto_convert', parse=bool, default=False)
 
 
 def configure(config):
     config.define_section('currency', CurrencySection, validate=False)
     config.currency.configure_setting('fixer_io_key', 'API key for fixer IO. Leave blank to use exchangeratesapi.io:')
-    config.currency.configure_setting('enable_regex', 'Automatically respond to regex matches?')
+    config.currency.configure_setting('auto_convert', 'Automatically respond to regex matches?')
 
 
 def setup(bot):
@@ -171,7 +171,7 @@ def exchange_cmd(bot, trigger):
 @rule(EXCHANGE_REGEX)
 @example('100 usd in btc cad eur')
 def exchange_re(bot, trigger):
-    if bot.config.currency.enable_regex:
+    if bot.config.currency.auto_convert:
         match = EXCHANGE_REGEX.match(trigger)
         exchange(bot, match)
 
