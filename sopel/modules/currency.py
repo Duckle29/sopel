@@ -99,7 +99,6 @@ def get_rate(of, to):
 def exchange(bot, match):
     """Show the exchange rate between two currencies"""
 
-    # match = regex.match(trigger)                                                      # that
     if not match:
         bot.reply("Sorry, I didn't understand the input.")
         return NOLIMIT
