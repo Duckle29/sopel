@@ -136,7 +136,7 @@ def exchange(bot, match):
     bot.reply(out_string[0:-1])
 
 
-@commands('cur', 'currency', 'exchange')  # this
+@commands('cur', 'currency', 'exchange')
 @example('.cur 100 usd in btc cad eur')
 def exchange_cmd(bot, trigger):
     if not trigger.group(2):
