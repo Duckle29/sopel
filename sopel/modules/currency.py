@@ -19,7 +19,7 @@ EXCHANGE_REGEX = re.compile(r'''
     ^(\d+(?:\.\d+)?)                                            # Decimal number
     \s*([a-zA-Z]{3})                                            # 3-letter currency code
     \s+(?:in|as|of|to)\s+                                       # preposition
-    (([a-zA-Z]{3})|([a-zA-Z]{3})\s)+$   # one or more 3-letter currency code
+    (([a-zA-Z]{3}$)|([a-zA-Z]{3})\s)+$                          # one or more 3-letter currency code
 ''', re.VERBOSE)
 
 LOGGER = get_logger(__name__)
@@ -113,7 +113,6 @@ def get_rate(of, to):
 def exchange(bot, match):
     """Show the exchange rate between two currencies"""
 
-    # match = regex.match(trigger)                                                      # that
     if not match:
         bot.reply("Sorry, I didn't understand the input.")
         return NOLIMIT
@@ -159,7 +158,7 @@ def exchange(bot, match):
     bot.reply(out_string[0:-1])
 
 
-@commands('cur', 'currency', 'exchange')  # this
+@commands('cur', 'currency', 'exchange')
 @example('.cur 100 usd in btc cad eur')
 def exchange_cmd(bot, trigger):
     if not trigger.group(2):
