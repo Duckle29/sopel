@@ -182,7 +182,7 @@ class CurrencySection(StaticSection):
 def configure(config):
     config.define_section('currency', CurrencySection, validate=False)
     config.currency.configure_setting('fixer_io_key', 'Optional API key for Fixer.io (leave blank to use exchangeratesapi.io):')
-    config.currency.configure_setting('enable_regex', 'automatically respond to regex matches:')
+    config.currency.configure_setting('enable_regex', 'Automatically respond to regex matches?')   
 
 
 def setup(bot):
