@@ -80,10 +80,10 @@ def build_reply(amount, base, target, out_string):
     result = float(rate * amount)
 
     digits = 0
-    while 1 / 10**digits > result:
+    # up to 10 (8+2) digits precision when result is less than 1
+    # as smaller results need more precision
+    while digits < 8 and 1 / 10**digits > result:
         digits += 1
-        if digits >= 8:
-            break
 
     digits += 2
 
