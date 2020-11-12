@@ -83,15 +83,11 @@ def build_reply(amount, base, target, out_string):
     while 1 / 10**digits > result:
         digits += 1
         if digits >= 8:
-            break;
-    
+            break
+
     digits += 2
 
-    out_string += ' {value:,.{precision}f} {currency},'.format(
-        value=result, 
-        precision=digits, 
-        currency=target
-    )
+    out_string += ' {value:,.{precision}f} {currency},'.format(value=result, precision=digits, currency=target)
 
     return out_string
 
